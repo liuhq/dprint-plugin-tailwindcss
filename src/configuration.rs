@@ -24,7 +24,7 @@ pub struct Configuration {
     // ignore when `enable_wrap` is false
     pub indent_width: u8,
     // ignore when `enable_wrap` is false
-    pub line_width_relative_to_indent: bool,
+    pub line_width_includes_indent: bool,
     // ignore when `enable_wrap` & `line_width_relative_to_indent` are false
     pub line_width: u32,
 }
@@ -40,7 +40,7 @@ impl Default for Configuration {
             allow_line_overflow: false,
             indent_to_quote: true,
             indent_width: 2,
-            line_width_relative_to_indent: false,
+            line_width_includes_indent: false,
             line_width: 120,
         }
     }
@@ -87,8 +87,8 @@ impl Configuration {
         self
     }
 
-    pub fn with_line_width_relative_to_indent(mut self, enabled: bool) -> Self {
-        self.line_width_relative_to_indent = enabled;
+    pub fn with_line_width_includes_indent(mut self, enabled: bool) -> Self {
+        self.line_width_includes_indent = enabled;
         self
     }
 

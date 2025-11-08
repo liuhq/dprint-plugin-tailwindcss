@@ -38,8 +38,9 @@ export const Counter: React.FC = () => {
         config: &configuration::Configuration::default()
             .with_indent_to_quote(true)
             .with_indent_width(4)
-            .with_line_width(80)
-            .with_allow_line_overflow(true),
+            .with_line_width(120)
+            .with_allow_line_overflow(false)
+            .with_line_width_includes_indent(true),
     })? {
         Some(text) => println!("{text}"),
         None => todo!(),

@@ -23,9 +23,10 @@ pub fn generate(
         .with_sorter(None)
         .with_wrapper(if config.enable_wrap {
             Some(TailwindWrapper::new(TailwindWrapperOption {
-                indent_to_quote: config.indent_to_quote,
                 allow_line_overflow: config.allow_line_overflow,
+                indent_to_quote: config.indent_to_quote,
                 indent_width: config.indent_width,
+                line_width_includes_indent: config.line_width_includes_indent,
                 line_width: config.line_width,
             }))
         } else {

@@ -115,7 +115,7 @@ impl<'a> Visit<'a> for TailwindVisitor<'a> {
             let source_text = self.source_text;
             let node_span_start = it.opening_element.span.start as usize;
             wrapper.set_pre_jsx_element_line(source_text, node_span_start);
-            wrapper.set_pre_indent_level(source_text, node_span_start);
+            wrapper.set_pre_indent_count(source_text, node_span_start);
         }
         walk_jsx_element(self, it);
     }
