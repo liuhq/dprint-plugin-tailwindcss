@@ -1,0 +1,9 @@
+-- test.tsx --
+== arbitrary values ==
+<div className="w-[300px] flex [color:red] -mt-[10px] bg-[#bada55] p-[10px]"></div>
+[expect]
+<div className="flex w-[300px] p-[10px] -mt-[10px] bg-[#bada55] [color:red]"></div>
+== important modifier ==
+<div className="!text-red-500 !font-bold flex"></div>
+[expect]
+<div className="flex !font-bold !text-red-500"></div>

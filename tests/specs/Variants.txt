@@ -1,0 +1,13 @@
+-- test.tsx --
+== variant state grouping - plain before hover ==
+<div className="hover:opacity-75 opacity-50 hover:scale-150 scale-125"></div>
+[expect]
+<div className="opacity-50 scale-125 hover:opacity-75 hover:scale-150"></div>
+== variant responsive - sorted by breakpoint ==
+<div className="lg:grid-cols-4 grid sm:grid-cols-3 grid-cols-2"></div>
+[expect]
+<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"></div>
+== mixed plain, state, and responsive ==
+<div className="text-white px-4 sm:px-8 py-2 sm:py-3 bg-sky-700 hover:bg-sky-800"></div>
+[expect]
+<div className="px-4 py-2 text-white bg-sky-700 hover:bg-sky-800 sm:px-8 sm:py-3"></div>
