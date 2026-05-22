@@ -2,30 +2,39 @@
 
 A [dprint](https://dprint.dev) WASM plugin that sorts [Tailwind CSS](https://tailwindcss.com) v4+ class names in JSX/TSX/HTML files, following the [official Prettier plugin's sorting algorithm](https://tailwindcss.com/blog/automatic-class-sorting-with-prettier#how-classes-are-sorted).
 
+## Styles & Constraints
+
+- **Rust 2024 edition** — flat module files (`class_finder.rs`, not `class_finder/mod.rs`)
+- **Lifetimes over ownership** — use `<'_>` borrows (`&Path`, `&str`, `&Configuration`) instead of `Arc`/`PathBuf`/`String` for function inputs
+- **Fully-qualified errors** — write `anyhow::Result<…>` directly in return types, no `use anyhow::Result;` imports
+- **Hard-coded separator** — `pub const SEPARATOR: &str = ":";` in `parsed_class.rs`, not configurable
+- **Minimal dependencies** — prefer byte-scanning over pulling in full parser crates (HTML)
+- **Zero warnings** — `cargo check` must produce no warnings
+- **All tests pass** — `cargo test` green before any commit
+- **Pure `Ordering` pipeline** — sorting uses `.then_with()` chains with `Ord`-deriving enums
+
 ## Architecture
 
 ```
 src/
 ├── lib.rs                  # Module declarations, WASM gate, re-exports
-├── wasm_plugin.rs          # SyncPluginHandler + generate_plugin_code! (EXISTING, 81 lines)
+├── wasm_plugin.rs          # SyncPluginHandler + generate_plugin_code!
 ├── configuration.rs        # Plugin config schema + ResolveConfiguration
-├── parsed_class.rs         # Token → ParsedClass { variants, base, value, ... }
+├── parsed_class.rs         # Token → ParsedClass { variants, base, value, … } + SEPARATOR constant
 ├── sort_order.rs           # UtilityGroup enum (derives Ord) + base→group mapping
 ├── css_config.rs           # Scan user CSS for @utility, @custom-variant, breakpoints
-├── class_finder/mod.rs     # JSX/TSX via deno_ast + HTML via swc_html_parser → ClassSpan[]
+├── class_finder.rs         # JSX/TSX via deno_ast + HTML via byte-scanning → ClassSpan[]
 ├── class_sorter.rs         # 6-rule comparator (pure Ordering pipeline) + sort_class_string()
-└── format_text.rs          # Orchestrator: find→sort→reconstruct → Ok(Option<String>)
+└── format_text.rs          # Orchestrator: find→sort→reconstruct → anyhow::Result<Option<String>>
 
 tests/
 ├── spec_test.rs            # dprint-development file_test_runner
-└── specs/                  # 10 spec fixtures
+└── specs/                  # 4 spec fixtures (11 test cases)
 ```
 
 ## Dependencies
 
-Existing: `anyhow`, `dprint-core 0.67.4`, `dprint-core-macros 0.1.0`, `serde` (derive), `serde_json` (optional), `deno_ast 0.53.0` (view).
-
-To add: `swc_html_parser 21.0.0`, `swc_html_ast 21.0.0`, `swc_html_visit 21.0.0` (HTML AST — matches SWC versions in Cargo.lock via deno_ast).
+`anyhow`, `dprint-core 0.67.4`, `dprint-core-macros 0.1.0`, `serde` (derive), `serde_json` (optional), `deno_ast 0.53.0` (view).
 
 ## Plugin Configuration
 
@@ -33,7 +42,6 @@ To add: `swc_html_parser 21.0.0`, `swc_html_ast 21.0.0`, `swc_html_visit 21.0.0`
 // in dprint.json
 {
   "tailwindcss": {
-    "separator": ":",         // default — Tailwind's modifier separator
     "cssFile": "src/app.css"  // optional — path to Tailwind v4 CSS for @utility discovery
   }
 }
@@ -45,8 +53,6 @@ Configuration struct (`src/configuration.rs`):
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Configuration {
-    #[serde(default = "default_separator")]
-    pub separator: String,        // ":"
     pub css_file: Option<String>, // e.g. "src/app.css"
 }
 ```
@@ -213,7 +219,7 @@ Scans the user's Tailwind v4 CSS file (line-based, not full CSS AST) to extract:
 | `@utility <name> { ... }` | Custom utility name | Map to `UtilityGroup::Custom` |
 | `@custom-variant <name> (...) { ... }` | Custom variant name | Recognized state variant |
 
-## Class Finder (`src/class_finder/mod.rs`)
+## Class Finder (`src/class_finder.rs`)
 
 Finds class-containing attributes in source files, returning byte-offset spans:
 
@@ -224,13 +230,13 @@ pub struct ClassSpan {
     pub classes: String,   // the raw class string content
 }
 
-pub fn find_classes(text: &str, extension: &str) -> Result<Vec<ClassSpan>>;
+pub fn find_classes(text: &str, extension: &str) -> anyhow::Result<Vec<ClassSpan>>;
 ```
 
 | Extension | Parser | Target |
 |---|---|---|
 | `.tsx`, `.jsx` | `deno_ast` (SWC ECMA) | `JSXAttr` with name `className` or `class` |
-| `.html` | `swc_html_parser` | `Attribute` with name `class` |
+| `.html` | byte-scanning | `class="…"` and `class='…'` attributes |
 
 Handles:
 - String literals: `className="flex p-4"` → extracts the full string content
@@ -239,14 +245,14 @@ Handles:
 ## Format Text (`src/format_text.rs`)
 
 ```rust
-pub struct FormatTextOptions {
-    pub path: PathBuf,
-    pub extension: Option<String>,
-    pub text: String,
-    pub config: Arc<Configuration>,
+pub struct FormatTextOptions<'a> {
+    pub path: &'a Path,
+    pub extension: Option<&'a str>,
+    pub text: &'a str,
+    pub config: &'a Configuration,
 }
 
-pub fn format_text(options: FormatTextOptions) -> Result<Option<String>>;
+pub fn format_text(options: FormatTextOptions<'_>) -> anyhow::Result<Option<String>>;
 ```
 
 Flow:
@@ -256,56 +262,15 @@ Flow:
 4. 0 replacements → `Ok(None)` (no changes, dprint skips write)
 5. Otherwise → apply replacements end→start (preserving byte offsets) → `Ok(Some(new_text))`
 
-## Test Plan
+## Tests
 
 `tests/spec_test.rs` uses `dprint_development::run_specs` (custom harness, `harness = false`). Each fixture is a single file with input `==` expected output.
 
-| Spec | Tests |
+| Spec file | Test cases |
 |---|---|
-| `JSX_Simple` | `className="flex items-center p-4"` — correct order unchanged |
-| `JSX_Reorder` | `className="p-4 flex"` → `className="flex p-4"` |
-| `JSX_TemplateLiteral` | Template literals with expressions preserved |
-| `HTML_Simple` | `class="flex p-4"` sorting via HTML AST |
-| `VariantState` | `hover:opacity-75 opacity-50` grouping (plain before state) |
-| `VariantResponsive` | `md:p-4 sm:p-4` → `sm:p-4 md:p-4` (breakpoint order) |
-| `ArbitraryValues` | `w-[300px] flex [color:red] -mt-[10px]` sorting |
-| `OverrideOrder` | `pt-2 p-4` → `p-4 pt-2` (broader before specific) |
-| `UnknownFront` | `p-3 shadow-xl select2-dropdown` → `select2-dropdown p-3 shadow-xl` |
-| `NoChange` | Already sorted input → `Ok(None)` |
+| `JSX_Basic.txt` | no-change, basic reorder, override order, unknown front (4) |
+| `Variants.txt` | state grouping, responsive breakpoint order, mixed plain/state/screen (3) |
+| `HTML_Simple.txt` | html class sorting, html no change (2) |
+| `Arbitrary.txt` | arbitrary values, important modifier (2) |
 
-## File Checklist
-
-| # | File | New? | Dependencies |
-|---|---|---|---|
-| 1 | `src/configuration.rs` | New | serde, dprint-core |
-| 2 | `src/parsed_class.rs` | New | (Phase 1 separator) |
-| 3 | `src/sort_order.rs` | New | (none) |
-| 4 | `src/css_config.rs` | New | (none) |
-| 5 | `src/class_finder/mod.rs` | New | deno_ast, swc_html_* |
-| 6 | `src/class_sorter.rs` | New | Phases 2, 3, 4 |
-| 7 | `src/format_text.rs` | New | Phases 1, 4, 5, 6 |
-| 8 | `src/lib.rs` | Edit | Phases 1–7 |
-| 9 | `src/wasm_plugin.rs` | Edit (uncomment 2 lines) | Phase 7 |
-| 10 | `Cargo.toml` | Edit (+3 HTML SWC crates) | Phase 5 |
-| 11 | `tests/spec_test.rs` | New | Phases 1–8 |
-| 12–21 | `tests/specs/*` | New (10 files) | Phase 8 |
-
-## Implementation Order
-
-```
-Phase 1 (configuration) ─────────────────────────────────────────────────── parallel
-Phase 2 (parsed_class)  ─────────────────────────────────────────────────── parallel
-Phase 3 (sort_order)    ─────────────────────────────────────────────────── parallel
-Phase 4 (css_config)    ─────────────────────────────────────────────────── parallel
-Phase 5 (class_finder)  ─────────────────────────────────────────────────── parallel
-                                     │
-Phase 6 (class_sorter) ──────────────┘ depends on 2, 3, 4
-                                     │
-Phase 7 (format_text)  ──────────────┘ depends on 1, 4, 5, 6
-                                     │
-Phase 8 (lib.rs wire-up) ────────────┘ depends on 1–7
-                                     │
-Phase 9 (tests)        ──────────────┘ depends on 1–8
-```
-
-Total: ~1,200 LOC across 14 source files + 3 crate additions.
+Total: 4 spec files, 11 test cases, plus 4 unit tests in `class_sorter.rs`.
